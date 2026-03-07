@@ -8,11 +8,12 @@ func f<T>(val: T) -> T {
 
 func main() -> i32 {
     let o = new A {
-        val = "aaa"
+        val = 1i64
     };
 
     extern "C" func printf(s: str, ...) -> i32;
 
-    printf("generic struct.val: %s\n", o.val)
-    printf("generic func ret val: %s\n", f(o.val))
+    printf("generic struct.val: %d\n", o.val)
+    printf("generic func ret val: %d\n", f(o.val))
+    printf("generic func ret val * 2: %d\n", f(o.val) + f(o.val))
 }
