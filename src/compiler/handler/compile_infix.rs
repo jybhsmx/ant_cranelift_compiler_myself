@@ -7,9 +7,7 @@ use ant_type_checker::{
 };
 use cranelift::prelude::{InstBuilder, IntCC, Value, types};
 
-use crate::compiler::{
-    CompileResult, Compiler, FunctionState, get_platform_width, imm::platform_width_to_int_type,
-};
+use crate::compiler::{CompileResult, Compiler, FunctionState, get_platform_width};
 
 macro_rules! four_fundamental_operations {
     ($op:ident) => {
