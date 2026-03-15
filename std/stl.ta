@@ -9,16 +9,7 @@ struct Vec<T> {
 
 func vec_init<T>(size_: usize) -> Vec<T> {
 	let o = new Vec {
-		ptr = malloc(size_) as *T,
-		size = size_
-	};
-
-	o
-}
-
-func vec_inita<T>(size_: usize, first: T) -> Vec<T> {
-	let o = new Vec {
-		ptr = malloc(size_) as *T,
+		ptr = malloc(size_ * sizeof T) as *T,
 		size = size_
 	};
 
@@ -72,25 +63,24 @@ func vec_erase<T>(v: Vec<T>, p: usize) -> Vec<T> {
 
 func vec_insert<T>(v: Vec<T>, p: usize, nv: T) -> Vec<T> {
 	let o = new Vec {
-		ptr = malloc(v.size + 1usize) as *T,
-		size = v.size + 1usize
-	};
+        ptr = malloc((v.size + 1usize) * sizeof T) as *T,
+        size = v.size + 1usize
+    };
 
-	let postv = 0usize; 
-	let posto = 0usize;
+    let i = 0usize;
+    while i < p {
+        vec_post(o, i, vec_get(v, i));
+        i = i + 1usize;
+    }
 
-	while postv < v.size {
-		if postv == p {
-			vec_post(o, posto, nv)
-			posto = posto + 1usize;
-		}
+    vec_post(o, p, nv);
 
-		vec_post(o, posto, vec_get(v, postv));
-	
-		postv = (posto as usize) + 1usize
-	}
+    while i < v.size {
+        vec_post(o, i + 1usize, vec_get(v, i));
+        i = i + 1usize;
+    }
 
-	vec_free(v);
+	// vec_free(v);
 	o
 }
 
@@ -114,6 +104,17 @@ func vec_swap<T> (v: Vec<T>, i: u8, j: usize) {
     let temp = vec_get(v, i);
     vec_post(v, i, vec_get(v, j));
     vec_post(v, j, temp);
+}
+
+func vec_inita<T>(size_: usize, first: T) -> Vec<T> {
+	let o = new Vec {
+		ptr = malloc(size_ * sizeof T) as *T,
+		size = size_
+	};
+
+	o = vec_insert(o, 0usize, first);
+
+	o
 }
 
 // func _vec_partition<T> (v: Vec<T>, low: usize, high: usize) -> usize {
@@ -169,11 +170,13 @@ func vec_swap<T> (v: Vec<T>, i: u8, j: usize) {
 //(use v)...
 
 func main() -> i32 {
-	let v = vec_inita(5usize, 10u8);
-	v = vec_insert(v, 0usize, 91u8);
+	let v = vec_inita(5usize, 13i32);
+	v = vec_insert(v, 1usize, 91i32);
+	v = vec_insert(v, 2usize, 71i32);
 
 	extern "C" func printf(s: str, ...) -> i32;
 
 	printf("first: %d\n", vec_get(v, 0usize));
 	printf("second: %d\n", vec_get(v, 1usize));
+	printf("third: %d\n", vec_get(v, 2usize));
 }
