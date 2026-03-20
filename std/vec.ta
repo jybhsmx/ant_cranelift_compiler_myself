@@ -8,6 +8,16 @@ struct Vec<T> {
     len: usize // 长度
 }
 
+func vec_init<T>() -> Vec<T> {
+    let v = new Vec {
+        ptr = 0usize as *T,
+        cap = 0usize,
+        len = 0usize
+    };
+
+    v
+}
+
 func vec_inita<T>(first: T) -> Vec<T> {
     let v = new Vec {
         ptr = malloc(sizeof T) as *T,
@@ -79,7 +89,8 @@ func vec_free<T>(v: Vec<T>) {
 func main() -> i32 {
     extern "C" func printf(s: str, ...) -> i32;
 
-    let v = vec_inita(42i32);
+    let v = vec_init::<i32>();
+    vec_push(v, 42i32);
     vec_push(v, 91i32);
     vec_push(v, 78i32);
 
