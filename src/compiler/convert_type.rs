@@ -1,4 +1,4 @@
-use ant_type_checker::ty::{IntTy, Ty};
+use ant_type_checker::ty::{FloatTy, IntTy, Ty};
 use cranelift::prelude::types;
 
 use crate::compiler::imm::platform_width_to_int_type;
@@ -16,6 +16,10 @@ pub fn convert_type_to_cranelift_type(ty: &Ty) -> types::Type {
             IntTy::U32 => types::I32,
             IntTy::U16 => types::I16,
             IntTy::U8 => types::I8,
+        }
+        Ty::FloatTy(ty) => match ty {
+            FloatTy::F32 => types::F32,
+            FloatTy::F64 => types::F64,
         }
         Ty::Bool => types::I8, // cranelift 没有比 i8 更小的类型了
         Ty::Struct { .. } => platform_width_to_int_type(),
