@@ -309,16 +309,14 @@ pub fn compile_call(
             if (cl_ty == types::F64 || cl_ty == types::F32)
                 && CALL_CONV == CallConv::WindowsFastcall
             {
+                let f64_val = state.builder.ins().fpromote(types::F64, arg_val);
+
                 // Windows 变长参数规则：将浮点数通过位转换视为整数传递
                 // 这样它会进入 RDX/R8/R9 寄存器，而不是只在 XMM 里
                 arg_val = state
                     .builder
                     .ins()
-                    .bitcast(if cl_ty == types::F64 {
-                        types::I64
-                    } else {
-                        types::I32
-                    }, MemFlags::new(), arg_val);
+                    .bitcast(types::I64, MemFlags::new(), f64_val);
             }
 
             arg_values.push(arg_val);
@@ -359,10 +357,10 @@ pub fn compile_call(
             let cl_ty = convert_type_to_cranelift_type(state.tcx().get(arg.get_type()));
 
             sig.params.push(AbiParam::new(
-                if cl_ty == types::F64 && CALL_CONV == CallConv::WindowsFastcall {
+                if (cl_ty == types::F64 || cl_ty == types::F32)
+                    && CALL_CONV == CallConv::WindowsFastcall
+                {
                     types::I64
-                } else if cl_ty == types::F32 && CALL_CONV == CallConv::WindowsFastcall {
-                    types::I32
                 } else {
                     cl_ty
                 },
