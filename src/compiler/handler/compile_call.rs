@@ -6,8 +6,8 @@ use ant_type_checker::{
     ty::{Ty, TyId},
     typed_ast::{GetType, typed_expr::TypedExpression, typed_expressions::ident::Ident},
 };
-use cranelift::prelude::{AbiParam, InstBuilder, Signature, Value};
-use cranelift_codegen::ir::FuncRef;
+use cranelift::prelude::{AbiParam, InstBuilder, MemFlags, Signature, Value, types};
+use cranelift_codegen::{ir::FuncRef, isa::CallConv};
 use cranelift_module::{Linkage, Module};
 use indexmap::IndexMap;
 
@@ -302,8 +302,19 @@ pub fn compile_call(
     if va_arg {
         for arg in args {
             let arg = state.get_expr_ref(*arg).clone();
+            let cl_ty = convert_type_to_cranelift_type(state.tcx_ref().get(arg.get_type()));
 
-            let arg_val = Compiler::compile_expr(state, &arg)?;
+            let mut arg_val = Compiler::compile_expr(state, &arg)?;
+
+            if cl_ty == types::F64 && CALL_CONV == CallConv::WindowsFastcall {
+                // Windows 变长参数规则：将浮点数通过位转换视为整数传递
+                // 这样它会进入 RDX/R8/R9 寄存器，而不是只在 XMM 里
+                arg_val = state
+                    .builder
+                    .ins()
+                    .bitcast(types::I64, MemFlags::new(), arg_val);
+            }
+
             arg_values.push(arg_val);
         }
     } else {
@@ -339,10 +350,15 @@ pub fn compile_call(
         for arg in args {
             let arg = state.get_expr_ref(*arg).clone();
 
-            sig.params
-                .push(AbiParam::new(convert_type_to_cranelift_type(
-                    state.tcx().get(arg.get_type()),
-                )));
+            let cl_ty = convert_type_to_cranelift_type(state.tcx().get(arg.get_type()));
+
+            sig.params.push(AbiParam::new(
+                if cl_ty == types::F64 && CALL_CONV == CallConv::WindowsFastcall {
+                    types::I64
+                } else {
+                    cl_ty
+                },
+            ));
         }
     } else {
         for param_ty in &params_type {
