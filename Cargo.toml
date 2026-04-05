@@ -9,6 +9,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+ant_id = { git = "https://github.com/ant-pl/TypedAnt.git", package = "id" }
 ant_typed_ast = { git = "https://github.com/ant-pl/TypedAnt.git", package = "typed_ast" }
 ant_typed_module = { git = "https://github.com/ant-pl/TypedAnt.git", package = "typed_module" }
 ant_ty = { git = "https://github.com/ant-pl/TypedAnt.git", package = "ty" }
