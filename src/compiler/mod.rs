@@ -15,8 +15,8 @@ use std::env::{current_dir, current_exe};
 use std::path::PathBuf;
 use std::{collections::HashMap, fs, path::Path, rc::Rc, sync::Arc};
 
-use ant_type_checker::module::TypedModule;
-use ant_type_checker::ty::TyId;
+use ant_typed_module::module::TypedModule;
+use ant_ty::TyId;
 use cranelift_codegen::{
     isa::TargetIsa,
     settings,

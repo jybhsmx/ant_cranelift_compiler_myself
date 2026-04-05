@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use ant_type_checker::{
-    ty::TyId,
-    typed_ast::{GetType, typed_expr::TypedExpression, typed_expressions::ident::Ident},
-};
+use ant_ty::TyId;
+use ant_typed_ast::{GetType, typed_expr::TypedExpression, typed_expressions::ident::Ident};
+
 use cranelift::prelude::{InstBuilder, MemFlags, Value};
 use indexmap::IndexMap;
 

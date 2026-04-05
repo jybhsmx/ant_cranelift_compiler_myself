@@ -1,10 +1,8 @@
 use std::sync::Arc;
 
 use ant_ast::expr::IntValue;
-use ant_type_checker::{
-    ty::Ty,
-    typed_ast::{GetType, typed_expr::TypedExpression},
-};
+use ant_ty::Ty;
+use ant_typed_ast::{GetType, typed_expr::TypedExpression};
 use cranelift::prelude::{InstBuilder, IntCC, Value, types};
 
 use crate::compiler::{CompileResult, Compiler, FunctionState, get_platform_width};

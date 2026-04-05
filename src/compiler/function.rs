@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use ant_type_checker::ty::TyId;
-use ant_type_checker::{ty::Ty, typed_ast::typed_expr::TypedExpression};
+use ant_ty::{Ty, TyId};
+use ant_typed_ast::typed_expr::TypedExpression;
 use cranelift::prelude::{AbiParam, InstBuilder, Signature, Value};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::Module;

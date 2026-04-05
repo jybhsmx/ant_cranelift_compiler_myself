@@ -7,13 +7,17 @@ use std::{cell::RefCell, fs, path::PathBuf, rc::Rc, sync::Arc};
 
 use crate::compiler::{Compiler, compile_to_executable, create_target_isa, table::SymbolTable};
 
+use ant_crate_def::ModuleId;
 use ant_lexer::Lexer;
+use ant_name_resolver::NameResolver;
 use ant_parser::{Parser, error::display_err};
 
 use ant_type_checker::{
-    TypeChecker, module::TypedModule, ty_context::TypeContext, type_infer::{TypeInfer, infer_context::InferContext}
+    TypeChecker,
+    type_infer::{TypeInfer, infer_context::InferContext},
 };
 
+use ant_typed_module::{module::TypedModule, ty_context::TypeContext};
 use clap::Parser as ClapParser;
 
 use crate::args::{ARG, Args};
@@ -51,10 +55,17 @@ fn compile(arg: Args) {
         }
     };
 
+    let mut name_resolver = NameResolver::new(ModuleId(0), &file_arc);
+    if let Err(it) = name_resolver.resolve(program.clone()) {
+        eprintln!("{it:#?}");
+        eprintln!();
+        panic!("name resolver error")
+    }
+
     let mut type_context = TypeContext::new();
     let mut typed_module = TypedModule::new(&mut type_context);
 
-    let mut checker = TypeChecker::new(&mut typed_module);
+    let mut checker = TypeChecker::new(&mut typed_module, &mut name_resolver);
 
     let typed_program = match checker.check_node(program) {
         Ok(it) => it,
@@ -127,7 +138,6 @@ fn compile(arg: Args) {
         Ok(_) => (),
         Err(it) => println!("{it}"),
     }
-
 }
 
 fn main() {

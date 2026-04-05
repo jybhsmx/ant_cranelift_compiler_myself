@@ -1,4 +1,4 @@
-use ant_type_checker::ty::{FloatTy, Ty, TyId};
+use ant_ty::{FloatTy, Ty, TyId};
 use cranelift::prelude::{InstBuilder, IntCC, Value, types};
 
 use crate::compiler::{

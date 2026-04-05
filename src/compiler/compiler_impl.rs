@@ -9,6 +9,11 @@ use std::{
 };
 
 use ant_ast::expr::FloatValue;
+use ant_ty::{FloatTy, IntTy, Ty, TyId};
+use ant_typed_ast::{
+    GetType, typed_expr::TypedExpression, typed_node::TypedNode, typed_stmt::TypedStatement,
+};
+use ant_typed_module::{display_ty, module::TypedModule, ty_context::TypeContext};
 use bigdecimal::{BigDecimal, ToPrimitive};
 use cranelift::prelude::{AbiParam, InstBuilder, IntCC, MemFlags, Signature, Value, types};
 use cranelift_codegen::{
@@ -18,14 +23,6 @@ use cranelift_codegen::{
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{Linkage, Module, default_libcall_names};
 use cranelift_object::{ObjectBuilder, ObjectModule};
-
-use ant_type_checker::{
-    module::TypedModule,
-    ty::{FloatTy, IntTy, Ty, display_ty},
-    typed_ast::{
-        GetType, typed_expr::TypedExpression, typed_node::TypedNode, typed_stmt::TypedStatement,
-    },
-};
 use indexmap::IndexMap;
 
 use crate::{
@@ -1007,7 +1004,9 @@ impl<'a> Compiler<'a> {
                     Ty::IntTy(IntTy::I16) => (i16::MIN.into(), i16::MAX.into()),
                     Ty::IntTy(IntTy::I32) => (i32::MIN.into(), i32::MAX.into()),
                     Ty::IntTy(IntTy::I64) => (i64::MIN.into(), i64::MAX.into()),
-                    Ty::IntTy(IntTy::ISize) => ((isize::MIN as i128).into(), (isize::MAX as i128).into()),
+                    Ty::IntTy(IntTy::ISize) => {
+                        ((isize::MIN as i128).into(), (isize::MAX as i128).into())
+                    }
                     Ty::IntTy(IntTy::U8) => (0.into(), u8::MAX.into()),
                     Ty::IntTy(IntTy::U16) => (0.into(), u16::MAX.into()),
                     Ty::IntTy(IntTy::U32) => (0.into(), u32::MAX.into()),
@@ -1019,8 +1018,10 @@ impl<'a> Compiler<'a> {
                 if *value < min || *value > max {
                     return Err(format!("integer `{value}` overflow, min {min} max {max}"));
                 }
-                
-                let val = value.to_i64().ok_or_else(|| format!("invalid integer `{value}`"))?;
+
+                let val = value
+                    .to_i64()
+                    .ok_or_else(|| format!("invalid integer `{value}`"))?;
 
                 state
                     .builder
@@ -2008,13 +2009,11 @@ impl<'a> Compiler<'a> {
 
 impl<'a> Compiler<'a> {
     pub fn substitute(
-        tcx: &ant_type_checker::ty_context::TypeContext,
-        param_ty: &ant_type_checker::ty::Ty,
-        arg_tyid: ant_type_checker::ty::TyId,
-        mapping: &mut indexmap::IndexMap<std::sync::Arc<str>, ant_type_checker::ty::TyId>,
+        tcx: &TypeContext,
+        param_ty: &Ty,
+        arg_tyid: TyId,
+        mapping: &mut indexmap::IndexMap<std::sync::Arc<str>, TyId>,
     ) {
-        use ant_type_checker::ty::Ty;
-
         // 获取实参的真实类型
         let arg_ty = tcx.get(arg_tyid);
 
@@ -2050,15 +2049,16 @@ impl<'a> Compiler<'a> {
 mod tests {
     use std::{cell::RefCell, path::Path, rc::Rc};
 
+    use ant_crate_def::ModuleId;
     use ant_lexer::Lexer;
+    use ant_name_resolver::NameResolver;
     use ant_parser::Parser;
 
     use ant_type_checker::{
         TypeChecker,
-        module::TypedModule,
-        ty_context::TypeContext,
         type_infer::{TypeInfer, infer_context::InferContext},
     };
+    use ant_typed_module::{module::TypedModule, ty_context::TypeContext};
 
     use crate::compiler::{Compiler, compile_to_executable, create_target_isa, table::SymbolTable};
 
@@ -2097,11 +2097,14 @@ mod tests {
 
         let node = (&mut Parser::new(tokens)).parse_program().unwrap();
 
+        let name_resolver = &mut NameResolver::new(ModuleId(0), &file);
+        name_resolver.resolve(node.clone());
+
         let mut tcx = TypeContext::new();
 
         let mut module = TypedModule::new(&mut tcx);
 
-        let checker = &mut TypeChecker::new(&mut module);
+        let checker = &mut TypeChecker::new(&mut module, name_resolver);
 
         let typed_node = checker.check_node(node).unwrap();
 

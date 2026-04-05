@@ -1,4 +1,4 @@
-use ant_type_checker::ty::Ty;
+use ant_ty::Ty;
 use cranelift::prelude::{InstBuilder, Value};
 use cranelift_codegen::ir::{self};
 use cranelift_frontend::FunctionBuilder;

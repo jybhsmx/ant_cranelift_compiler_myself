@@ -1,11 +1,9 @@
 use std::{cell::RefCell, rc::Rc};
 
 use ant_ast::{ExprId, StmtId};
-use ant_type_checker::{
-    ty::Ty,
-    ty_context::TypeContext,
-    typed_ast::{typed_expr::TypedExpression, typed_stmt::TypedStatement},
-};
+use ant_ty::{Ty, TyId};
+use ant_typed_ast::{typed_expr::TypedExpression, typed_stmt::TypedStatement};
+use ant_typed_module::ty_context::TypeContext;
 
 use crate::compiler::{
     CompileState, FunctionState, GlobalState,
@@ -124,8 +122,8 @@ impl<'b, 'a> GlobalState<'a, 'b> {
 impl<'b, 'a> FunctionState<'a, 'b> {
     pub fn resolve_concrete_ty(
         &mut self,
-        id: ant_type_checker::ty::TyId,
-        mapping: &indexmap::IndexMap<std::sync::Arc<str>, ant_type_checker::ty::TyId>,
+        id: TyId,
+        mapping: &indexmap::IndexMap<std::sync::Arc<str>, TyId>,
     ) -> Ty {
         let ty = self.typed_module.tcx_ref().get(id).clone();
 

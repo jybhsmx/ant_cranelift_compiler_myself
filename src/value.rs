@@ -1,5 +1,5 @@
 use ant_ast::expr::IntValue;
-use ant_type_checker::typed_ast::typed_expr::TypedExpression;
+use ant_typed_ast::typed_expr::TypedExpression;
 
 use crate::traits::{LiteralExprToConst, ToLeBytes};
 

@@ -1,20 +1,22 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
+use ant_ty::Ty;
+
 use crate::traits::NeedGc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolScope {
     Local,
     Global,
-    Free
+    Free,
 }
 
 /// 编译期计算的完整 struct 信息
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StructLayout {
     pub name: Arc<str>,
-    pub fields: Vec<(Arc<str>, ant_type_checker::ty::Ty)>, // 字段名和类型
-    pub offsets: Vec<u32>,                                // 编译期计算的偏移量
+    pub fields: Vec<(Arc<str>, Ty)>, // 字段名和类型
+    pub offsets: Vec<u32>,           // 编译期计算的偏移量
     pub size: u32,
     pub align: u32,
 }
@@ -45,7 +47,7 @@ pub struct Symbol {
     /// 符号类型 (非 type_checker::Ty)
     pub symbol_ty: SymbolTy,
     /// 是否为变量/函数等有值符号
-    pub is_val: bool
+    pub is_val: bool,
 }
 
 impl Symbol {
@@ -200,7 +202,8 @@ impl SymbolTable {
         symbol.table_index = self.free_symbols.len() - 1;
         symbol.scope = SymbolScope::Free;
 
-        self.map.insert(symbol.name.to_string().into(), symbol.clone());
+        self.map
+            .insert(symbol.name.to_string().into(), symbol.clone());
 
         symbol
     }

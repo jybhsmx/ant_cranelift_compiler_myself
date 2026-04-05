@@ -2,10 +2,8 @@ use std::sync::Arc;
 
 use ant_ast::{ExprId, node::GetToken};
 use ant_token::{token::Token, token_type::TokenType};
-use ant_type_checker::{
-    ty::{Ty, TyId},
-    typed_ast::{GetType, typed_expr::TypedExpression, typed_expressions::ident::Ident},
-};
+use ant_ty::{Ty, TyId};
+use ant_typed_ast::{GetType, typed_expr::TypedExpression, typed_expressions::ident::Ident};
 use cranelift::prelude::{AbiParam, InstBuilder, MemFlags, Signature, Value, types};
 use cranelift_codegen::{ir::FuncRef, isa::CallConv};
 use cranelift_module::{Linkage, Module};
