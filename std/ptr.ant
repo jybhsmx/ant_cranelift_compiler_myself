@@ -1,11 +1,3 @@
 func null_of<T>() -> *T {
     0usize as *T
 }
-
-func main() -> i32 {
-    extern "C" func printf(s: str, ...) -> i32;
-
-    printf("%p\n", null_of::<i32>())
-
-    0i32
-}
