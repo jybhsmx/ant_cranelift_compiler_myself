@@ -18,7 +18,7 @@ use crate::compiler::{
 };
 use crate::traits::NeedGc;
 
-pub fn make_signature(param_types: &[&Ty], ret_ty: &Ty) -> Signature {
+pub fn make_signature(param_types: &[Ty], ret_ty: &Ty) -> Signature {
     let mut signature = Signature::new(CALL_CONV);
 
     signature.params = param_types
@@ -125,18 +125,22 @@ pub fn compile_function(
         module: state.module,
         table: func_symbol_table,
         typed_module: state.typed_module,
+        krate: state.krate,
         function_map: state.function_map,
         data_map: state.data_map,
         generic_map: state.generic_map,
         compiled_generic_map: state.compiled_generic_map,
         subst: subst,
         target_isa: state.target_isa.clone(),
+        def_datas: state.def_datas,
+        def_functions: state.def_functions,
 
         arc_alloc: state.arc_alloc,
         arc_release: state.arc_release,
         arc_retain: state.arc_retain,
 
         terminated: false,
+        ptr_type: state.ptr_type
     };
 
     let result = Compiler::compile_expr(&mut func_state, block_ast)?;

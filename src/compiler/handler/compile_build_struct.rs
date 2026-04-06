@@ -38,10 +38,10 @@ fn get_or_build_struct_layout(
 
         for (_, tyid) in field_to_val_ty_mapping {
             // 相信外部数据 这里不作检查
-            field_refs.push(state.tcx_ref().get(tyid));
+            field_refs.push(state.tcx_ref().get(tyid).clone());
         }
 
-        let mangled = mangle_generic(struct_name, &field_refs);
+        let mangled = mangle_generic(struct_name, field_refs.as_slice());
 
         let layout =
             Compiler::compile_struct_layout(state, &mangled.clone().into(), fields.as_slice())?;
@@ -113,7 +113,7 @@ pub fn instantiate_struct<'aa, 'b>(
         base_name,
         &type_args
             .iter()
-            .map(|it| state.get_typed_module_ref().tcx_ref().get(*it))
+            .map(|it| state.get_typed_module_ref().tcx_ref().get(*it).clone())
             .collect::<Vec<_>>(),
     )
     .into();

@@ -18,9 +18,6 @@ pub enum GenericInfo {
         /// T, K, V
         generic: Vec<Arc<str>>,
 
-        /// item: T, k: K, v: V
-        generic_params: IndexMap<Arc<str>, Arc<str>>,
-
         all_params: IndexMap<Arc<str>, TyId>,
 
         block: Box<TypedExpression>,
@@ -40,7 +37,7 @@ pub enum CompiledGenericInfo {
     },
 }
 
-pub fn mangle_generic(name: &str, args: &[&Ty]) -> String {
+pub fn mangle_generic(name: &str, args: &[Ty]) -> String {
     if args.is_empty() {
         return name.to_string();
     }

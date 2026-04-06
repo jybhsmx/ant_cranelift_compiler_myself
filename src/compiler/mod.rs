@@ -15,14 +15,17 @@ use std::env::{current_dir, current_exe};
 use std::path::PathBuf;
 use std::{collections::HashMap, fs, path::Path, rc::Rc, sync::Arc};
 
+use ant_crate_def::Crate;
+use ant_id::DefId;
 use ant_typed_module::module::TypedModule;
 use ant_ty::TyId;
+use cranelift::prelude::Type;
 use cranelift_codegen::{
     isa::TargetIsa,
     settings,
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_module::FuncId;
+use cranelift_module::{DataId, FuncId};
 use cranelift_object::ObjectModule;
 use indexmap::IndexMap;
 
@@ -44,15 +47,20 @@ pub struct Compiler<'a> {
     data_map: HashMap<String, cranelift_module::DataId>,
     generic_map: HashMap<String, GenericInfo>,
     compiled_generic_map: IndexMap<String, CompiledGenericInfo>,
+    def_functions: HashMap<DefId, cranelift_module::FuncId>,
+    def_datas: HashMap<DefId, cranelift_module::DataId>,
 
     target_isa: Arc<dyn TargetIsa>,
 
     table: Rc<RefCell<SymbolTable>>,
     typed_module: TypedModule<'a>,
+    krate: Crate<'a>,
 
     arc_alloc: FuncId,
     arc_retain: FuncId,
     arc_release: FuncId,
+    
+    ptr_type: Type,
 }
 
 pub struct GlobalState<'a, 'b> {
@@ -63,14 +71,20 @@ pub struct GlobalState<'a, 'b> {
     pub data_map: &'a mut HashMap<String, cranelift_module::DataId>,
     pub generic_map: &'a mut HashMap<String, GenericInfo>,
     pub compiled_generic_map: &'a mut IndexMap<String, CompiledGenericInfo>,
+    pub def_functions: &'a mut HashMap<DefId, cranelift_module::FuncId>,
+    pub def_datas: &'a mut HashMap<DefId, cranelift_module::DataId>,
 
     pub table: Rc<RefCell<SymbolTable>>,
 
     pub typed_module: &'a mut TypedModule<'b>,
 
+    pub krate: &'a mut Crate<'b>,
+
     pub arc_alloc: FuncId,
     pub arc_retain: FuncId,
     pub arc_release: FuncId,
+
+    pub ptr_type: Type,
 }
 
 pub struct FunctionState<'a, 'b> {
@@ -83,6 +97,10 @@ pub struct FunctionState<'a, 'b> {
     pub generic_map: &'a mut HashMap<String, GenericInfo>,
     pub compiled_generic_map: &'a mut IndexMap<String, CompiledGenericInfo>,
     pub subst: &'a IndexMap<Arc<str>, TyId>,
+    pub def_functions: &'a mut HashMap<DefId, cranelift_module::FuncId>,
+    pub def_datas: &'a mut HashMap<DefId, cranelift_module::DataId>,
+
+    pub krate: &'a mut Crate<'b>,
 
     pub typed_module: &'a mut TypedModule<'b>,
 
@@ -93,6 +111,7 @@ pub struct FunctionState<'a, 'b> {
     pub arc_release: FuncId,
 
     pub terminated: bool,
+    pub ptr_type: Type,
 }
 
 #[allow(unused)]
@@ -105,6 +124,10 @@ pub trait CompileState<'a, 'b> {
     fn get_compiled_generic_map(&mut self) -> &mut IndexMap<String, CompiledGenericInfo>;
     fn get_typed_module(&'b mut self) -> &'a mut TypedModule<'b>;
     fn get_typed_module_ref(&self) -> &TypedModule<'_>;
+    fn get_def_functions(&mut self) -> &mut HashMap<DefId, FuncId>;
+    fn get_def_datas(&mut self) -> &mut HashMap<DefId, DataId>;
+    fn get_krate(&'b mut self) -> &'a mut Crate<'b>;
+    fn get_krate_ref(&'_ self) -> &'_ Crate<'_>;
 
     fn get_table(&self) -> Rc<RefCell<SymbolTable>>;
 
@@ -232,7 +255,7 @@ pub fn compile_to_executable(
             .arg(output_path)
             .arg(&lib_path)
             .arg("-L")
-            .arg(format!("{}/include", compiler_dir))
+            .arg(format!("{}/include/clib", compiler_dir))
             .arg("-l")
             .arg("arc");
 
@@ -344,6 +367,22 @@ impl<'a, 'b> CompileState<'a, 'b> for GlobalState<'a, 'b> {
     fn get_arc_release(&self) -> FuncId {
         self.arc_release
     }
+    
+    fn get_def_functions(&mut self) -> &mut HashMap<DefId, FuncId> {
+        self.def_functions
+    }
+    
+    fn get_def_datas(&mut self) -> &mut HashMap<DefId, DataId> {
+        self.def_datas
+    }
+    
+    fn get_krate(&'b mut self) -> &'a mut Crate<'b> {
+        self.krate
+    }
+    
+    fn get_krate_ref(&'_ self) -> &'_ Crate<'_> {
+        self.krate
+    }
 }
 
 impl<'a, 'b> CompileState<'a, 'b> for FunctionState<'a, 'b> {
@@ -393,5 +432,21 @@ impl<'a, 'b> CompileState<'a, 'b> for FunctionState<'a, 'b> {
 
     fn get_arc_release(&self) -> FuncId {
         self.arc_release
+    }
+    
+    fn get_def_functions(&mut self) -> &mut HashMap<DefId, FuncId> {
+        self.def_functions
+    }
+    
+    fn get_def_datas(&mut self) -> &mut HashMap<DefId, DataId> {
+        self.def_datas
+    }
+    
+    fn get_krate(&'b mut self) -> &'a mut Crate<'b> {
+        self.krate
+    }
+    
+    fn get_krate_ref(&self) -> &Crate<'_> {
+        self.krate
     }
 }

@@ -55,7 +55,7 @@ fn compile(arg: Args) {
         }
     };
 
-    let mut name_resolver = NameResolver::new(ModuleId(0), &file_arc);
+    let mut name_resolver = NameResolver::new(ModuleId(0), file_arc.clone());
     if let Err(it) = name_resolver.resolve(program.clone()) {
         eprintln!("{it:#?}");
         eprintln!();
@@ -67,7 +67,7 @@ fn compile(arg: Args) {
 
     let mut checker = TypeChecker::new(&mut typed_module, &mut name_resolver);
 
-    let typed_program = match checker.check_node(program) {
+    let typed_program = match checker.check_all(program) {
         Ok(it) => it,
         Err(err) => {
             eprintln!("{err:#?}");
@@ -75,12 +75,12 @@ fn compile(arg: Args) {
             panic!("type checker error")
         }
     };
-
+    
     let constraints = checker.get_constraints().to_vec();
-
+    
     let mut infer_ctx = InferContext::new(&mut typed_module);
 
-    let mut type_infer = TypeInfer::new(&mut infer_ctx);
+    let mut type_infer = TypeInfer::new(&mut infer_ctx, &name_resolver);
 
     match type_infer.unify_all(constraints) {
         Ok(_) => (),
@@ -100,10 +100,13 @@ fn compile(arg: Args) {
         }
     }
 
+    let krate = name_resolver.krate;
+
     let compiler = Compiler::new(
         create_target_isa(),
         file_arc.clone(),
         Rc::new(RefCell::new(SymbolTable::new())),
+        krate,
         typed_module,
     );
 

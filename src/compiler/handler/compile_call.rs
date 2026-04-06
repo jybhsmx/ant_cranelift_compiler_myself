@@ -5,6 +5,7 @@ use ant_id::ExprId;
 use ant_token::{token::Token, token_type::TokenType};
 use ant_ty::{Ty, TyId};
 use ant_typed_ast::{GetType, typed_expr::TypedExpression, typed_expressions::ident::Ident};
+use ant_typed_module::display_ty;
 use cranelift::prelude::{AbiParam, InstBuilder, MemFlags, Signature, Value, types};
 use cranelift_codegen::{ir::FuncRef, isa::CallConv};
 use cranelift_module::{Linkage, Module};
@@ -66,6 +67,7 @@ fn compile_call_method(
                 ),
             },
             func_ty.clone(),
+            None,
         )),
         args: args.clone(),
         func_ty: func_ty_id,
@@ -81,16 +83,17 @@ fn compile_call_generic(
     args: &Vec<ExprId>,
     func_ty: &TyId,
 ) -> CompileResult<Value> {
-    let TypedExpression::Ident(name_ident, _) = func else {
+    let TypedExpression::Ident(name_ident, ..) = func else {
         return Err(format!("unsupport generic lambda fucntion"));
     };
 
+    let ty = state.resolve_concrete_ty(*func_ty, state.subst);
     let Ty::Function {
         ret_type: ret_type_infer,
         ..
-    } = state.resolve_concrete_ty(*func_ty, state.subst)
+    } = ty
     else {
-        return Err(format!("not a function"));
+        return Err(format!("not a function: {}", display_ty(&ty, state.tcx_ref())));
     };
 
     let name = &name_ident.value;
@@ -123,8 +126,8 @@ fn compile_call_generic(
 
     let arg_types = arg_tyids
         .iter()
-        .map(|it| state.typed_module.tcx_ref().get(*it))
-        .collect::<Vec<&Ty>>();
+        .map(|it| state.typed_module.tcx_ref().get(*it).clone())
+        .collect::<Vec<_>>();
 
     let mangled_func_name = mangle_generic(&name, &arg_types);
 
@@ -153,7 +156,9 @@ fn compile_call_generic(
         .map(|(name, id)| {
             (
                 name.clone(),
-                state.resolve_concrete_ty(*id, &generic_param_to_real_types),
+                state
+                    .resolve_concrete_ty(*id, &generic_param_to_real_types)
+                    .clone(),
             )
         })
         .collect();
@@ -161,10 +166,12 @@ fn compile_call_generic(
     let concrete_ret_ty = state.resolve_concrete_ty(ret_ty, &generic_param_to_real_types);
 
     let signature = make_signature(
-        &concrete_param_types
-            .iter()
+        concrete_param_types
+            .clone()
+            .into_iter()
             .map(|(_, tyid)| tyid)
-            .collect::<Vec<_>>(),
+            .collect::<Vec<_>>()
+            .as_slice(),
         &concrete_ret_ty,
     );
 
@@ -261,20 +268,20 @@ pub fn compile_call(
         );
     }
 
-    if let TypedExpression::Ident(Ident { value: name, .. }, _) = func
+    if let TypedExpression::Ident(Ident { value: name, .. }, ..) = func
         && let Some(GenericInfo::Function { .. }) = state.generic_map.get(name.as_ref())
         && !state.compiled_generic_map.contains_key(name.as_ref())
     {
         return compile_call_generic(state, func, args, func_ty);
     }
 
-    let mut func_id = if let TypedExpression::Ident(ident, _) = func {
+    let mut func_id = if let TypedExpression::Ident(ident, ..) = func {
         state.function_map.get(&ident.value.to_string()).copied()
     } else {
         None
     };
 
-    if let TypedExpression::Ident(Ident { value: name, .. }, _) = func
+    if let TypedExpression::Ident(Ident { value: name, .. }, ..) = func
         && let Some(GenericInfo::Function { .. }) = state.generic_map.get(name.as_ref())
         && state.compiled_generic_map.contains_key(name.as_ref())
         && let Some(CompiledGenericInfo::Function {

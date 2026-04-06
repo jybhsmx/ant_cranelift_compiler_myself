@@ -9,6 +9,8 @@ use std::{
 };
 
 use ant_ast::expr::FloatValue;
+use ant_crate_def::{Crate, definition::Def};
+use ant_id::DefId;
 use ant_ty::{FloatTy, IntTy, Ty, TyId};
 use ant_typed_ast::{
     GetType, typed_expr::TypedExpression, typed_node::TypedNode, typed_stmt::TypedStatement,
@@ -54,6 +56,7 @@ impl<'a> Compiler<'a> {
         target_isa: Arc<dyn TargetIsa>,
         file: Arc<str>,
         table: Rc<RefCell<SymbolTable>>,
+        krate: Crate<'a>,
         typed_module: TypedModule<'a>,
     ) -> Compiler<'a> {
         // 创建 ObjectModule
@@ -100,11 +103,15 @@ impl<'a> Compiler<'a> {
             function_map: HashMap::new(),
             data_map: HashMap::new(),
             generic_map: HashMap::new(),
+            def_functions: HashMap::new(),
+            def_datas: HashMap::new(),
             compiled_generic_map: IndexMap::new(),
+            ptr_type: target_isa.pointer_type(),
             target_isa,
 
             table,
             typed_module,
+            krate,
 
             arc_alloc,
             arc_release,
@@ -238,22 +245,30 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    pub fn is_top_level_stmt(state: &GlobalState, stmt: &TypedStatement) -> bool {
+    pub fn is_top_level_stmt_with_typed_module(
+        typed_module: &TypedModule<'_>,
+        stmt: &TypedStatement,
+    ) -> bool {
         if matches!(
             stmt,
             TypedStatement::Const { .. }
                 | TypedStatement::Struct { .. }
                 | TypedStatement::Extern { .. }
+                | TypedStatement::Use { .. }
         ) {
             return true;
         } else if let TypedStatement::ExpressionStatement(_, id, _) = stmt {
             return matches!(
-                state.typed_module.get_expr(*id).unwrap(),
+                typed_module.get_expr(*id).unwrap(),
                 TypedExpression::Function { .. }
             );
         }
 
         false
+    }
+
+    pub fn is_top_level_stmt(state: &GlobalState, stmt: &TypedStatement) -> bool {
+        Self::is_top_level_stmt_with_typed_module(state.typed_module, stmt)
     }
 
     pub fn compile_top_level_stmt(
@@ -271,7 +286,7 @@ impl<'a> Compiler<'a> {
 
                 let data_id = state
                     .module
-                    .declare_data(&name.value, Linkage::Local, false, false) // Declare as Local
+                    .declare_data(&name.value, Linkage::Export, false, false) // Declare as Local
                     .unwrap();
 
                 let mut data_desc = cranelift_module::DataDescription::new();
@@ -282,8 +297,6 @@ impl<'a> Compiler<'a> {
                 state.data_map.insert(name.value.to_string(), data_id);
 
                 state.module.define_data(data_id, &data_desc).unwrap();
-
-                state.table.borrow_mut().define(&name.value);
 
                 Ok(())
             }
@@ -330,14 +343,6 @@ impl<'a> Compiler<'a> {
                                 })
                                 .collect::<Vec<Arc<str>>>();
 
-                            let generic_params = param_names
-                                .iter()
-                                .zip(params_type.clone())
-                                .map(|(name, id)| (name, state.tcx_ref().get(id)))
-                                .filter(|(_, it)| matches!(it, Ty::Generic(_, _)))
-                                .map(|(name, ty)| (name.clone(), ty.to_string().into()))
-                                .collect();
-
                             let all_params = param_names
                                 .iter()
                                 .zip(params_type)
@@ -358,13 +363,12 @@ impl<'a> Compiler<'a> {
                                         .map(|it| {
                                             let it = state.get_expr_ref(*it);
 
-                                            let TypedExpression::Ident(s, _) = it else {
+                                            let TypedExpression::Ident(s, ..) = it else {
                                                 unreachable!()
                                             };
                                             s.value.clone()
                                         })
                                         .collect::<Vec<Arc<str>>>(),
-                                    generic_params,
                                     all_params,
                                     block: Box::new(state.get_expr_cloned(block_ast)),
                                     ret_ty: *ret_type,
@@ -377,8 +381,8 @@ impl<'a> Compiler<'a> {
                         let signature = make_signature(
                             &params_type
                                 .iter()
-                                .map(|it| state.tcx_ref().get(*it))
-                                .collect::<Vec<&Ty>>(),
+                                .map(|it| state.tcx_ref().get(*it).clone())
+                                .collect::<Vec<_>>(),
                             state.tcx_ref().get(*ret_type),
                         );
 
@@ -469,10 +473,13 @@ impl<'a> Compiler<'a> {
                             module: state.module,
                             table: func_symbol_table,
                             typed_module: state.typed_module,
+                            krate: state.krate,
                             function_map: state.function_map,
                             data_map: state.data_map,
                             generic_map: state.generic_map,
                             compiled_generic_map: state.compiled_generic_map,
+                            def_datas: state.def_datas,
+                            def_functions: state.def_functions,
                             subst: &IndexMap::new(),
 
                             target_isa: state.target_isa.clone(),
@@ -482,6 +489,7 @@ impl<'a> Compiler<'a> {
                             arc_retain: state.arc_retain,
 
                             terminated: false,
+                            ptr_type: state.ptr_type,
                         };
 
                         let result = Self::compile_expr(&mut func_state, &block)?;
@@ -573,7 +581,7 @@ impl<'a> Compiler<'a> {
                         .map(|it| {
                             let it = state.get_expr_ref(*it);
 
-                            let TypedExpression::Ident(it, _) = it else {
+                            let TypedExpression::Ident(it, ..) = it else {
                                 todo!("todo generic expression")
                             };
 
@@ -647,6 +655,8 @@ impl<'a> Compiler<'a> {
 
                 Ok(())
             }
+
+            TypedStatement::Use { .. } => Ok(()),
 
             _ => todo!("impl function 'compile_stmt'"),
         }
@@ -780,7 +790,7 @@ impl<'a> Compiler<'a> {
                         .map(|it| {
                             let it = state.get_expr_ref(*it);
 
-                            let TypedExpression::Ident(it, _) = it else {
+                            let TypedExpression::Ident(it, ..) = it else {
                                 todo!("todo generic expression")
                             };
 
@@ -1069,7 +1079,7 @@ impl<'a> Compiler<'a> {
                     .iconst(convert_type_to_cranelift_type(&ty), ty_size))
             }
 
-            TypedExpression::Ident(it, ty) => {
+            TypedExpression::Ident(it, ty, def_id) => {
                 let sym = state.table.borrow_mut().get(&it.value);
 
                 if let Some(var) = &sym
@@ -1122,6 +1132,39 @@ impl<'a> Compiler<'a> {
                         val_ptr,
                         0,
                     ));
+                }
+
+                if let Some(def_id) = *def_id {
+                    let ty = state.tcx_ref().get(*ty).clone();
+
+                    if let Some(&func_id) = state.def_functions.get(&def_id) {
+                        // 获取函数地址并返回
+                        let local_ref = state
+                            .module
+                            .declare_func_in_func(func_id, &mut state.builder.func);
+                        return Ok(state
+                            .builder
+                            .ins()
+                            .func_addr(platform_width_to_int_type(), local_ref));
+                    }
+
+                    if let Some(&data_id) = state.def_datas.get(&def_id) {
+                        // 获取全局变量并加载
+                        let local_ref = state
+                            .module
+                            .declare_data_in_func(data_id, &mut state.builder.func);
+                        let ptr = state
+                            .builder
+                            .ins()
+                            .global_value(platform_width_to_int_type(), local_ref);
+
+                        return Ok(state.builder.ins().load(
+                            convert_type_to_cranelift_type(&ty),
+                            MemFlags::new(),
+                            ptr,
+                            0,
+                        ));
+                    }
                 }
 
                 Err(format!("undefined variable: {}", it.value))
@@ -1198,7 +1241,7 @@ impl<'a> Compiler<'a> {
                     .table
                     .borrow_mut()
                     .get(&concrete_name)
-                    .ok_or_else(|| format!("undefined struct: {}", name))?
+                    .ok_or_else(|| format!("undefined struct layout: {}", name))?
                     .symbol_ty
                 else {
                     Err(format!("not a struct type"))?
@@ -1242,7 +1285,7 @@ impl<'a> Compiler<'a> {
                 let left = state.get_expr_ref(*left).clone();
                 let right = state.get_expr_ref(*right).clone();
 
-                if let TypedExpression::Ident(ident, _) = &left {
+                if let TypedExpression::Ident(ident, ..) = &left {
                     if left.get_type() != right.get_type() {
                         return Err(format!(
                             "expected: `{}`, got: `{}`",
@@ -1321,7 +1364,7 @@ impl<'a> Compiler<'a> {
                         .table
                         .borrow_mut()
                         .get(&concrete_name)
-                        .ok_or_else(|| format!("undefined struct: `{}`", name))?;
+                        .ok_or_else(|| format!("undefined struct layout: `{}`", name))?;
 
                     let SymbolTy::Struct(layout) = sym.symbol_ty else {
                         Err(format!("not a struct"))?
@@ -1467,14 +1510,6 @@ impl<'a> Compiler<'a> {
                             })
                             .collect::<Vec<Arc<str>>>();
 
-                        let generic_params = param_names
-                            .iter()
-                            .zip(params_type)
-                            .map(|(name, id)| (name, state.tcx_ref().get(*id)))
-                            .filter(|(_, it)| matches!(it, Ty::Generic(_, _)))
-                            .map(|(name, ty)| (name.clone(), ty.to_string().into()))
-                            .collect();
-
                         let all_params = param_names
                             .iter()
                             .zip(params_type)
@@ -1495,13 +1530,12 @@ impl<'a> Compiler<'a> {
                                     .map(|it| {
                                         let it = state.get_expr_ref(*it);
 
-                                        let TypedExpression::Ident(s, _) = it else {
+                                        let TypedExpression::Ident(s, ..) = it else {
                                             unreachable!()
                                         };
                                         s.value.clone()
                                     })
                                     .collect::<Vec<Arc<str>>>(),
-                                generic_params,
                                 all_params,
                                 block: Box::new(state.get_expr_cloned(*block_ast)),
                                 ret_ty: *ret_type,
@@ -1514,8 +1548,8 @@ impl<'a> Compiler<'a> {
                     let signature = make_signature(
                         &params_type
                             .iter()
-                            .map(|it| state.tcx_ref().get(*it))
-                            .collect::<Vec<&Ty>>(),
+                            .map(|it| state.tcx_ref().get(*it).clone())
+                            .collect::<Vec<_>>(),
                         state.tcx_ref().get(*ret_type),
                     );
 
@@ -1789,8 +1823,8 @@ impl<'a> Compiler<'a> {
                 ..
             } => {
                 let base_name = match state.get_expr_ref(*left) {
-                    TypedExpression::Ident(id, _) => id.value.as_ref(),
-                    _ => return Err(format!("Turbofish left side must be an identifier")),
+                    TypedExpression::Ident(id, ..) => id.value.as_ref(),
+                    _ => return Err(format!("turbofish left side must be an identifier")),
                 };
 
                 let func_ty = state.tcx_ref().get(*func_ty_id).clone();
@@ -1809,13 +1843,7 @@ impl<'a> Compiler<'a> {
                     .cloned()
                     .collect();
 
-                let mut arg_type_refs = vec![];
-
-                for arg_ty in &arg_tys {
-                    arg_type_refs.push(arg_ty);
-                }
-
-                let mangled_name = mangle_generic(base_name, &arg_type_refs);
+                let mangled_name = mangle_generic(base_name, &arg_tys);
 
                 let func_id = if let Some(&id) = state.function_map.get(&mangled_name) {
                     id
@@ -1850,7 +1878,7 @@ impl<'a> Compiler<'a> {
                         &mut generic_param_to_real_types,
                     );
 
-                    let signature = make_signature(&arg_type_refs, state.tcx_ref().get(ret_ty));
+                    let signature = make_signature(&arg_tys, state.tcx_ref().get(ret_ty));
 
                     let func_id = state
                         .module
@@ -1882,6 +1910,124 @@ impl<'a> Compiler<'a> {
 
             _ => todo!("impl function 'compile_expr'"),
         }
+    }
+
+    pub fn collect_declare<'aa, 'b>(state: &mut impl CompileState<'aa, 'b>) -> CompileResult<()> {
+        let defs = state
+            .get_krate_ref()
+            .definitions
+            .clone()
+            .into_iter()
+            .enumerate();
+
+        for (id_idx, def) in defs {
+            let def_id = DefId(id_idx);
+
+            match def {
+                Def::Function(data) => {
+                    let ty = state.get_typed_module_ref().tcx_ref().get(data.ty).clone();
+                    let Ty::Function {
+                        generics,
+                        params_type,
+                        ret_type,
+                        ..
+                    } = ty
+                    else {
+                        return Err(format!(
+                            "{} is not a function: {}",
+                            data.name,
+                            display_ty(&ty, state.get_typed_module_ref().tcx_ref())
+                        ));
+                    };
+
+                    if generics.is_empty() {
+                        let params_type = params_type
+                            .iter()
+                            .map(|it| state.get_typed_module_ref().tcx_ref().get(*it).clone())
+                            .collect::<Vec<_>>();
+
+                        let sig = make_signature(
+                            params_type.as_slice(),
+                            state.get_typed_module_ref().tcx_ref().get(ret_type),
+                        );
+
+                        let symbol_name = if data.name.as_ref() == "main" {
+                            "main".to_string()
+                        } else {
+                            data.name.to_string()
+                            // format!("__def_{id_idx}_{}", &data.name)
+                        };
+
+                        let func_id = state
+                            .get_module()
+                            .declare_function(&symbol_name, Linkage::Export, &sig)
+                            .map_err(|it| it.to_string())?;
+
+                        state.get_def_functions().insert(def_id, func_id);
+
+                        continue;
+                    }
+
+                    let block = state
+                        .get_typed_module_ref()
+                        .get_expr(data.body.unwrap())
+                        .unwrap()
+                        .clone();
+
+                    state.get_generic_map().insert(
+                        data.name.to_string(),
+                        GenericInfo::Function {
+                            generic: generics,
+                            all_params: data.params,
+                            block: Box::new(block),
+                            ret_ty: ret_type,
+                        },
+                    );
+                }
+
+                Def::Constant(data) => {
+                    let data_id = state
+                        .get_module()
+                        .declare_data(&data.name, Linkage::Export, false, false)
+                        .map_err(|it| it.to_string())?;
+                    state.get_def_datas().insert(def_id, data_id);
+                }
+
+                Def::Struct(data) => {
+                    if data.generics.is_empty() {
+                        let layout = Self::compile_struct_layout(
+                            state,
+                            &data.name,
+                            data.fields
+                                .iter()
+                                .map(|(name, ty)| {
+                                    (
+                                        name.clone(),
+                                        state.get_typed_module_ref().tcx_ref().get(*ty).clone(),
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                                .as_slice(),
+                        )?;
+
+                        state.get_table().borrow_mut().define_struct_type(&data.name, layout);
+                        continue;
+                    }
+
+                    state.get_generic_map().insert(
+                        data.name.to_string(),
+                        GenericInfo::Struct {
+                            generic_params: data.generics,
+                            fields: data.fields.clone()
+                        },
+                    );
+                }
+
+                _ => {}
+            }
+        }
+
+        Ok(())
     }
 
     pub fn compile_program(mut self, program: TypedNode) -> Result<Vec<u8>, String> {
@@ -1919,17 +2065,23 @@ impl<'a> Compiler<'a> {
                     data_map: &mut self.data_map,
                     generic_map: &mut self.generic_map,
                     compiled_generic_map: &mut self.compiled_generic_map,
+                    def_datas: &mut self.def_datas,
+                    def_functions: &mut self.def_functions,
                     subst: &IndexMap::new(),
 
                     table: Rc::new(RefCell::new(SymbolTable::from_outer(self.table))),
                     typed_module: &mut self.typed_module,
+                    krate: &mut self.krate,
 
                     arc_alloc: self.arc_alloc,
                     arc_retain: self.arc_retain,
                     arc_release: self.arc_release,
 
                     terminated: false,
+                    ptr_type: self.ptr_type,
                 };
+
+                Self::collect_declare(&mut state)?;
 
                 for stmt in statements {
                     let stmt = state.typed_module.get_stmt(stmt).unwrap().clone();
@@ -1963,30 +2115,49 @@ impl<'a> Compiler<'a> {
                 .map_err(|e| format!("define main failed: {}", e))?;
             self.context.clear();
         } else {
-            let mut state = GlobalState {
-                target_isa: self.target_isa.clone(),
-                module: &mut self.module,
-                function_map: &mut self.function_map,
-                data_map: &mut self.data_map,
-                generic_map: &mut self.generic_map,
-                compiled_generic_map: &mut self.compiled_generic_map,
+            let mod_ids: Vec<usize> = (0..self.krate.modules.len()).collect();
 
-                table: self.table,
-                typed_module: &mut self.typed_module,
+            for mid in mod_ids {
+                let module_node = &self.krate.modules[mid];
 
-                arc_alloc: self.arc_alloc,
-                arc_retain: self.arc_retain,
-                arc_release: self.arc_release,
-            };
-
-            for stmt in statements {
-                let stmt = state.typed_module.get_stmt(stmt).unwrap().clone();
-
-                if !Self::is_top_level_stmt(&state, &stmt) {
+                // 确保这个模块已经被 TypeCheck 过了
+                let Some(ant_crate_def::NodeOrTyped::Typed(TypedNode::Program {
+                    statements, ..
+                })) = module_node.ast.clone()
+                else {
                     continue;
-                }
+                };
 
-                Self::compile_top_level_stmt(&mut state, &stmt)?;
+                let mut state = GlobalState {
+                    target_isa: self.target_isa.clone(),
+                    module: &mut self.module, // 共享唯一的二进制生成器
+                    function_map: &mut self.function_map,
+                    data_map: &mut self.data_map,
+                    generic_map: &mut self.generic_map,
+                    compiled_generic_map: &mut self.compiled_generic_map,
+                    def_datas: &mut self.def_datas,
+                    def_functions: &mut self.def_functions,
+
+                    table: self.table.clone(),
+                    krate: &mut self.krate,
+                    typed_module: &mut self.typed_module,
+
+                    arc_alloc: self.arc_alloc,
+                    arc_retain: self.arc_retain,
+                    arc_release: self.arc_release,
+                    ptr_type: self.ptr_type,
+                };
+
+                Self::collect_declare(&mut state)?;
+
+                for stmt_id in &statements {
+                    let stmt = state.typed_module.get_stmt(*stmt_id).unwrap().clone();
+
+                    if !Self::is_top_level_stmt(&state, &stmt) {
+                        continue;
+                    }
+                    Self::compile_top_level_stmt(&mut state, &stmt)?;
+                }
             }
 
             match self.context.verify(self.target_isa.as_ref()) {
@@ -2097,24 +2268,25 @@ mod tests {
 
         let node = (&mut Parser::new(tokens)).parse_program().unwrap();
 
-        let name_resolver = &mut NameResolver::new(ModuleId(0), &file);
-        name_resolver.resolve(node.clone());
+        let mut name_resolver = NameResolver::new(ModuleId(0), file);
+        name_resolver.resolve(node.clone()).unwrap();
 
         let mut tcx = TypeContext::new();
 
         let mut module = TypedModule::new(&mut tcx);
 
-        let checker = &mut TypeChecker::new(&mut module, name_resolver);
+        let checker = &mut TypeChecker::new(&mut module, &mut name_resolver);
 
-        let typed_node = checker.check_node(node).unwrap();
+        let typed_node = checker.check_all(node).unwrap();
 
         let constraints = checker.get_constraints().to_vec();
 
         let mut infer_ctx = InferContext::new(&mut module);
 
-        let mut type_infer = TypeInfer::new(&mut infer_ctx);
+        let mut type_infer = TypeInfer::new(&mut infer_ctx, &name_resolver);
 
         type_infer.unify_all(constraints).unwrap();
+        type_infer.infer().unwrap();
 
         // 创建编译器实例
         let table = SymbolTable::new();
@@ -2123,6 +2295,7 @@ mod tests {
             target_isa,
             "__simple_program__".into(),
             Rc::new(RefCell::new(table)),
+            name_resolver.krate,
             module,
         );
 
